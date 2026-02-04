@@ -8,7 +8,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.http import require_http_methods
 
 log = logging.getLogger(__name__)
 
@@ -101,7 +101,7 @@ def _internal_token_ok(request) -> bool:
     got = request.headers.get("X-Internal-Token", "")
     return bool(expected) and got == expected
 
-@require_GET
+@require_http_methods(["GET", "HEAD"])
 def courses_all(request):
     cache_key = _cfg("CACHE_KEY")
     stale_key = _cfg("STALE_KEY")
