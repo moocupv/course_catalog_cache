@@ -1,6 +1,5 @@
 """
 Middleware to capture LTI locale and apply it to the session.
-Works specifically with the coursera-lti tenant to avoid affecting main site sessions.
 """
 import logging
 
@@ -8,11 +7,6 @@ logger = logging.getLogger(__name__)
 
 
 class LtiLocaleMiddleware:
-    """
-    Captures launch_presentation_locale from LTI POST requests
-    and sets the language preference for the LTI session.
-    Uses tenant-specific cookie names to avoid conflicts with main site.
-    """
     def __init__(self, get_response):
         self.get_response = get_response
 
@@ -22,37 +16,39 @@ class LtiLocaleMiddleware:
             launch_locale = request.POST.get("launch_presentation_locale")
             
             if launch_locale:
-                # Convertir "en-US" a formato lowercase "en-us"
-                language_code = launch_locale.lower()
-                base_language = language_code.split("-")[0]
+                language_code = launch_locale.lower()  # "en-us"
+                base_language = language_code.split("-")[0]  # "en"
                 
                 # Establecer en la sesión
                 request.session["django_language"] = base_language
                 
-                # Sobrescribir cookie en el request para que los otros middlewares la vean
+                # Sobrescribir cookie en el request
                 from django.conf import settings
-                cookie_name = getattr(settings, 'LANGUAGE_COOKIE_NAME', 'openedx-language-preference')
+                cookie_name = getattr(settings, "LANGUAGE_COOKIE_NAME", "openedx-language-preference")
                 request.COOKIES[cookie_name] = language_code
                 
-                logger.info(f"[LTI] Language set to: {language_code} (base: {base_language})")
-            else:
-                logger.warning("[LTI] No launch_presentation_locale found in LTI POST")
+                logger.info(f"[LTI] Language set to: {language_code}")
                 
         response = self.get_response(request)
         
-        # Establecer la cookie en la respuesta para requests subsiguientes
+        # Establecer cookie en la respuesta
         if request.method == "POST" and "oauth_consumer_key" in request.POST:
             launch_locale = request.POST.get("launch_presentation_locale")
             if launch_locale:
                 language_code = launch_locale.lower()
                 from django.conf import settings
-                cookie_name = getattr(settings, 'LANGUAGE_COOKIE_NAME', 'openedx-language-preference')
+                cookie_name = getattr(settings, "LANGUAGE_COOKIE_NAME", "openedx-language-preference")
+                
+                # Forzar la cookie (eliminar cualquier otra)
+                if cookie_name in response.cookies:
+                    del response.cookies[cookie_name]
+                
                 response.set_cookie(
                     cookie_name, 
                     language_code,
-                    domain=getattr(settings, 'SESSION_COOKIE_DOMAIN', None),
-                    max_age=None,  # Cookie de sesión, no permanente
-                    samesite='None',
+                    domain=getattr(settings, "SESSION_COOKIE_DOMAIN", None),
+                    max_age=None,
+                    samesite="None",
                     secure=True
                 )
                 logger.info(f"[LTI] Cookie {cookie_name} set to: {language_code}")
