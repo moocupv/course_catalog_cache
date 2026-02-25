@@ -12,7 +12,12 @@ class LtiLocaleMiddleware:
 
     def __call__(self, request):
         # Solo procesar LTI launches (POST con oauth_consumer_key)
-        if request.method == "POST" and "oauth_consumer_key" in request.POST:
+        # Y verificar que session y user estén disponibles
+        if (request.method == "POST" 
+            and "oauth_consumer_key" in request.POST 
+            and hasattr(request, 'session')
+            and hasattr(request, 'user')):
+            
             launch_locale = request.POST.get("launch_presentation_locale")
             
             if launch_locale:
@@ -22,32 +27,43 @@ class LtiLocaleMiddleware:
                 # Establecer en la sesión
                 request.session["django_language"] = base_language
                 
-                # Sobrescribir cookie en el request
-                from django.conf import settings
-                cookie_name = getattr(settings, "LANGUAGE_COOKIE_NAME", "openedx-language-preference")
-                request.COOKIES[cookie_name] = language_code
+                logger.info(f"[LTI] Language set to: {language_code} (base: {base_language})")
                 
-                logger.info(f"[LTI] Language set to: {language_code}")
+                # Actualizar preferencia del usuario INMEDIATAMENTE
+                if request.user.is_authenticated:
+                    try:
+                        from openedx.core.djangoapps.user_api.preferences.api import set_user_preference, get_user_preference
+                        
+                        # Guardar preferencia original si no existe
+                        current_lang = get_user_preference(request.user, "pref-lang")
+                        if current_lang != base_language:
+                            request.session["lti_original_language"] = current_lang
+                            logger.info(f"[LTI] Saved original language: {current_lang}")
+                        
+                        # Establecer idioma del LTI ANTES de que otros middlewares lo lean
+                        set_user_preference(request.user, "pref-lang", base_language)
+                        logger.info(f"[LTI] User {request.user.username} pref-lang set to: {base_language}")
+                    except Exception as e:
+                        logger.warning(f"[LTI] Could not set user preference: {e}")
                 
         response = self.get_response(request)
         
         # Establecer cookie en la respuesta
-        if request.method == "POST" and "oauth_consumer_key" in request.POST:
+        if (request.method == "POST" 
+            and "oauth_consumer_key" in request.POST
+            and hasattr(request, 'session')):
+            
             launch_locale = request.POST.get("launch_presentation_locale")
             if launch_locale:
                 language_code = launch_locale.lower()
                 from django.conf import settings
                 cookie_name = getattr(settings, "LANGUAGE_COOKIE_NAME", "openedx-language-preference")
                 
-                # Forzar la cookie (eliminar cualquier otra)
-                if cookie_name in response.cookies:
-                    del response.cookies[cookie_name]
-                
                 response.set_cookie(
                     cookie_name, 
                     language_code,
                     domain=getattr(settings, "SESSION_COOKIE_DOMAIN", None),
-                    max_age=None,
+                    max_age=90 * 24 * 60 * 60,
                     samesite="None",
                     secure=True
                 )
