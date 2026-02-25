@@ -12,22 +12,21 @@ class LtiLocaleMiddleware:
 
     def __call__(self, request):
         # Solo procesar LTI launches (POST con oauth_consumer_key)
-        # Y verificar que session y user estén disponibles
         if (request.method == "POST" 
             and "oauth_consumer_key" in request.POST 
             and hasattr(request, 'session')
             and hasattr(request, 'user')):
             
             launch_locale = request.POST.get("launch_presentation_locale")
+            logger.info(f"[LTI DEBUG] Received launch_presentation_locale: {launch_locale}")
             
             if launch_locale:
-                language_code = launch_locale.lower()  # "en-us"
-                base_language = language_code.split("-")[0]  # "en"
+                language_code = launch_locale.lower()  # "en-us" o "es-la"
+                base_language = language_code.split("-")[0]  # "en" o "es"
                 
                 # Establecer en la sesión
                 request.session["django_language"] = base_language
-                
-                logger.info(f"[LTI] Language set to: {language_code} (base: {base_language})")
+                logger.info(f"[LTI] Session language set to: {base_language}")
                 
                 # Actualizar preferencia del usuario INMEDIATAMENTE
                 if request.user.is_authenticated:
@@ -40,7 +39,7 @@ class LtiLocaleMiddleware:
                             request.session["lti_original_language"] = current_lang
                             logger.info(f"[LTI] Saved original language: {current_lang}")
                         
-                        # Establecer idioma del LTI ANTES de que otros middlewares lo lean
+                        # Establecer idioma del LTI
                         set_user_preference(request.user, "pref-lang", base_language)
                         logger.info(f"[LTI] User {request.user.username} pref-lang set to: {base_language}")
                     except Exception as e:
@@ -56,17 +55,16 @@ class LtiLocaleMiddleware:
             launch_locale = request.POST.get("launch_presentation_locale")
             if launch_locale:
                 language_code = launch_locale.lower()
-                from django.conf import settings
-                cookie_name = getattr(settings, "LANGUAGE_COOKIE_NAME", "openedx-language-preference")
                 
+                # Cookie solo para el dominio específico (coursera-lti.upvx.es)
                 response.set_cookie(
-                    cookie_name, 
+                    "lti-language-preference",
                     language_code,
-                    domain=getattr(settings, "SESSION_COOKIE_DOMAIN", None),
+                    domain=None,  # Usa el dominio del request automáticamente
                     max_age=90 * 24 * 60 * 60,
                     samesite="None",
                     secure=True
                 )
-                logger.info(f"[LTI] Cookie {cookie_name} set to: {language_code}")
+                logger.info(f"[LTI] Cookie lti-language-preference={language_code} set for domain: {request.get_host()}")
         
         return response
